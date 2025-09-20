@@ -10,6 +10,21 @@ import {
 import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { PresenceService } from './presence.service';
+import {
+  SOCKET_EVENT_CONNECT,
+  SOCKET_EVENT_DISCONNECT,
+  SOCKET_EVENT_MESSAGE,
+  SOCKET_EVENT_JOIN,
+  SOCKET_EVENT_LEAVE,
+  SOCKET_EVENT_TYPING,
+  SOCKET_EVENT_STOP_TYPING,
+  SOCKET_EVENT_ERROR,
+  SOCKET_EVENT_ALERT,
+  SOCKET_EVENT_REFETCH_CHATS,
+  SOCKET_EVENT_NEW_ATTACHMENTS,
+  SOCKET_EVENT_NEW_MESSAGE_ALERT,
+  SOCKET_EVENT_NEW_REQUEST,
+} from './socket.constants';
 
 @WebSocketGateway({
   cors: {
@@ -34,9 +49,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     this.presenceService.addUser(userId, client.id);
-    this.logger.log(`User ${userId} connected`);
+    this.logger.log(`User ${userId} connected (socket: ${client.id})`);
 
-    this.server.emit('userOnline', { userId });
+    this.server.emit(SOCKET_EVENT_JOIN, { userId });
+    this.logger.log(`Emitted ${SOCKET_EVENT_JOIN} for user ${userId}`);
   }
 
   async handleDisconnect(client: Socket) {
@@ -46,12 +62,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     if (userId) {
       this.presenceService.removeUser(userId);
-      this.logger.log(`User ${userId} disconnected`);
-      this.server.emit('userOffline', { userId });
+      this.logger.log(`User ${userId} disconnected (socket: ${client.id})`);
+      this.server.emit(SOCKET_EVENT_LEAVE, { userId });
+      this.logger.log(`Emitted ${SOCKET_EVENT_LEAVE} for user ${userId}`);
     }
   }
 
-  @SubscribeMessage('sendMessage')
+  @SubscribeMessage(SOCKET_EVENT_MESSAGE)
   async handleMessage(
     @MessageBody()
     data: { senderId: string; recipientId: string; message: string },
@@ -60,32 +77,39 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const { senderId, recipientId, message } = data;
     this.logger.debug(`Message from ${senderId} to ${recipientId}: ${message}`);
 
-    client.emit('messageSent', { senderId, recipientId, message });
+    client.emit(SOCKET_EVENT_MESSAGE, { senderId, recipientId, message });
+    this.logger.log(`Emitted ${SOCKET_EVENT_MESSAGE} to sender ${senderId}`);
 
     const recipientSocketId = this.presenceService.getSocketId(recipientId);
     if (recipientSocketId) {
-      this.server.to(recipientSocketId).emit('receiveMessage', {
+      this.server.to(recipientSocketId).emit(SOCKET_EVENT_MESSAGE, {
         senderId,
         message,
       });
+      this.logger.log(`Emitted ${SOCKET_EVENT_MESSAGE} to recipient ${recipientId}`);
+
+      this.server.to(recipientSocketId).emit(SOCKET_EVENT_NEW_MESSAGE_ALERT, { senderId, message });
+      this.logger.log(`Emitted ${SOCKET_EVENT_NEW_MESSAGE_ALERT} to recipient ${recipientId}`);
     } else {
       this.logger.warn(`Recipient ${recipientId} is offline, storing message in DB later`);
     }
   }
 
-  @SubscribeMessage('typingStart')
+  @SubscribeMessage(SOCKET_EVENT_TYPING)
   async handleTypingStart(@MessageBody() data: { senderId: string; recipientId: string }) {
     const socketId = this.presenceService.getSocketId(data.recipientId);
     if (socketId) {
-      this.server.to(socketId).emit('typingStart', { senderId: data.senderId });
+      this.server.to(socketId).emit(SOCKET_EVENT_TYPING, { senderId: data.senderId });
+      this.logger.log(`Emitted ${SOCKET_EVENT_TYPING} to recipient ${data.recipientId}`);
     }
   }
 
-  @SubscribeMessage('typingStop')
+  @SubscribeMessage(SOCKET_EVENT_STOP_TYPING)
   async handleTypingStop(@MessageBody() data: { senderId: string; recipientId: string }) {
     const socketId = this.presenceService.getSocketId(data.recipientId);
     if (socketId) {
-      this.server.to(socketId).emit('typingStop', { senderId: data.senderId });
+      this.server.to(socketId).emit(SOCKET_EVENT_STOP_TYPING, { senderId: data.senderId });
+      this.logger.log(`Emitted ${SOCKET_EVENT_STOP_TYPING} to recipient ${data.recipientId}`);
     }
   }
 }

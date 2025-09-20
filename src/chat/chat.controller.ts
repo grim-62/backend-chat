@@ -35,6 +35,7 @@ export class ChatController {
   getUserDirectChats(@GetUser() user:any): any {
     return this.chatService.getUserDirectChats(user.id);
   }
+  
   @Get('group-chats')
   getUserGroupChats(@GetUser() user:any): any {
     return this.chatService.getUserGroupChats(user.id);

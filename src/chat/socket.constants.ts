@@ -1,7 +1,5 @@
-export const SOCKET_EVENT_MESSAGE = 'message';
-export const SOCKET_EVENT_JOIN = 'join';
-export const SOCKET_EVENT_LEAVE = 'leave';
-export const SOCKET_EVENT_TYPING = 'typing';
-export const SOCKET_EVENT_STOP_TYPING = 'stop_typing';
-export const SOCKET_EVENT_ONLINE_USERS = "online_users";
-export const SOCKET_EVENT_PRESENCE_UPDATE = 'presence_update';
+export const SOCKET_EVENT_NEW_MESSAGE = 'NEW_MESSAGE';
+export const SOCKET_EVENT_NEW_MESSAGE_ALERT = 'NEW_MESSAGE_ALERT';
+export const SOCKET_EVENT_TYPING_START = 'TYPING_START';
+export const SOCKET_EVENT_TYPING_END = 'TYPING_END';
+export const SOCKET_EVENT_ONLINE_USERS = 'ONLINE_USERS';

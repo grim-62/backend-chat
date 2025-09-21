@@ -19,7 +19,7 @@ export class RefreshTokenService {
 
   async createTokens(userId: string) {
     const accessToken = jwt.sign({ sub: userId }, this.accessSecret, {
-      expiresIn: '15m',
+      expiresIn: '30m'
     });
 
     const refreshToken = jwt.sign({ sub: userId }, this.refreshSecret, {

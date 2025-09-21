@@ -4,6 +4,8 @@ import { UserService } from 'src/user/user.service';
 import { OtpService } from './otp.service';
 import { RefreshTokenService } from './refreshToken.service';
 import { Response } from 'express';
+import { Logger } from 'concurrently';
+import { AuthModule } from './auth.module';
 
 const env = {
   JWT_SECRET: process.env.JWT_ACCESS_SECRET = 'access_secret',
@@ -27,6 +29,9 @@ const getUsernameFromEmail = (email) => {
 
 @Injectable()
 export class AuthService {
+  private logger = new Logger({
+    prefixFormat:"Auth",
+  });
   constructor(
     private readonly jwt: JwtService,
     private readonly user: UserService,
@@ -41,7 +46,9 @@ export class AuthService {
       env.OTP_TTL_MINUTES,
       env.OTP_RESEND_COOLDOWN_SECONDS,
     );
-    console.log(`Email OTP to ${email}: ${code}`);
+    Logger
+    console.log(`Email OTP to ${email}: ====================> ${code}`);
+    // this.logger.log(`Email OTP to ${email}: ${code}` as string)
 
     return { ok: true };
   }

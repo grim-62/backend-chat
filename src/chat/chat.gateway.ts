@@ -1,115 +1,140 @@
 import {
   WebSocketGateway,
-  SubscribeMessage,
-  MessageBody,
-  ConnectedSocket,
   WebSocketServer,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  SubscribeMessage,
+  MessageBody,
+  ConnectedSocket,
 } from '@nestjs/websockets';
-import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
+import { Logger } from '@nestjs/common';
 import { PresenceService } from './presence.service';
 import {
-  SOCKET_EVENT_CONNECT,
-  SOCKET_EVENT_DISCONNECT,
   SOCKET_EVENT_MESSAGE,
-  SOCKET_EVENT_JOIN,
-  SOCKET_EVENT_LEAVE,
   SOCKET_EVENT_TYPING,
   SOCKET_EVENT_STOP_TYPING,
-  SOCKET_EVENT_ERROR,
-  SOCKET_EVENT_ALERT,
-  SOCKET_EVENT_REFETCH_CHATS,
-  SOCKET_EVENT_NEW_ATTACHMENTS,
-  SOCKET_EVENT_NEW_MESSAGE_ALERT,
-  SOCKET_EVENT_NEW_REQUEST,
+  SOCKET_EVENT_ONLINE_USERS,
 } from './socket.constants';
 
 @WebSocketGateway({
-  cors: {
-    origin: '*', // ⚠️ restrict to frontend URL in production
-  },
+  cors: { origin: '*' }, // ⚠️ In production, restrict to your frontend domain
+  transports: ['websocket'],
 })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
-  private logger = new Logger(ChatGateway.name);
+  private readonly logger = new Logger(ChatGateway.name);
 
   constructor(private readonly presenceService: PresenceService) {}
 
   async handleConnection(client: Socket) {
-    const userId = client.handshake.query.userId as string;
+    try {
+      const userId = client.handshake.query.userId as string;
 
-    if (!userId) {
-      this.logger.warn(`Connection attempt without userId, disconnecting socket ${client.id}`);
+      if (!userId) {
+        this.logger.warn(`Socket ${client.id} tried to connect without userId`);
+        client.disconnect(true);
+        return;
+      }
+
+      this.presenceService.addUser(userId, client.id);
+      this.logger.log(`User ${userId} connected with socket ${client.id}`);
+
+      // Broadcast updated online users list
+      this.server.emit(SOCKET_EVENT_ONLINE_USERS, {
+        onlineUsers: this.presenceService.getOnlineUsers(),
+      });
+    } catch (err) {
+      this.logger.error(`Error in handleConnection: ${err.message}`, err.stack);
       client.disconnect(true);
-      return;
     }
-
-    this.presenceService.addUser(userId, client.id);
-    this.logger.log(`User ${userId} connected (socket: ${client.id})`);
-
-    this.server.emit(SOCKET_EVENT_JOIN, { userId });
-    this.logger.log(`Emitted ${SOCKET_EVENT_JOIN} for user ${userId}`);
   }
 
   async handleDisconnect(client: Socket) {
-    const userId = [...this.presenceService.getOnlineUsers()].find(
-      (id) => this.presenceService.getSocketId(id) === client.id,
-    );
+    try {
+      // Find the user who owns this socket
+      const userId = [...this.presenceService.getOnlineUsers()].find((id) =>
+        this.presenceService.getSocketIds(id).includes(client.id),
+      );
 
-    if (userId) {
-      this.presenceService.removeUser(userId);
-      this.logger.log(`User ${userId} disconnected (socket: ${client.id})`);
-      this.server.emit(SOCKET_EVENT_LEAVE, { userId });
-      this.logger.log(`Emitted ${SOCKET_EVENT_LEAVE} for user ${userId}`);
+      if (userId) {
+        this.presenceService.removeUser(userId, client.id);
+        this.logger.log(`User ${userId} disconnected socket ${client.id}`);
+
+        // Broadcast updated online users list
+        this.server.emit(SOCKET_EVENT_ONLINE_USERS, {
+          onlineUsers: this.presenceService.getOnlineUsers(),
+        });
+      }
+    } catch (err) {
+      this.logger.error(`Error in handleDisconnect: ${err.message}`, err.stack);
     }
   }
 
   @SubscribeMessage(SOCKET_EVENT_MESSAGE)
   async handleMessage(
-    @MessageBody()
-    data: { senderId: string; recipientId: string; message: string },
+    @MessageBody() data: { senderId: string; recipientId: string; message: string },
     @ConnectedSocket() client: Socket,
   ) {
-    const { senderId, recipientId, message } = data;
-    this.logger.debug(`Message from ${senderId} to ${recipientId}: ${message}`);
+    try {
+      const { senderId, recipientId, message } = data;
 
-    client.emit(SOCKET_EVENT_MESSAGE, { senderId, recipientId, message });
-    this.logger.log(`Emitted ${SOCKET_EVENT_MESSAGE} to sender ${senderId}`);
+      if (!senderId || !recipientId || !message) {
+        this.logger.warn(`Invalid message payload: ${JSON.stringify(data)}`);
+        return;
+      }
 
-    const recipientSocketId = this.presenceService.getSocketId(recipientId);
-    if (recipientSocketId) {
-      this.server.to(recipientSocketId).emit(SOCKET_EVENT_MESSAGE, {
-        senderId,
-        message,
-      });
-      this.logger.log(`Emitted ${SOCKET_EVENT_MESSAGE} to recipient ${recipientId}`);
+      this.logger.debug(`Message from ${senderId} → ${recipientId}: ${message}`);
 
-      this.server.to(recipientSocketId).emit(SOCKET_EVENT_NEW_MESSAGE_ALERT, { senderId, message });
-      this.logger.log(`Emitted ${SOCKET_EVENT_NEW_MESSAGE_ALERT} to recipient ${recipientId}`);
-    } else {
-      this.logger.warn(`Recipient ${recipientId} is offline, storing message in DB later`);
+      // Send message back to sender (ack)
+      client.emit(SOCKET_EVENT_MESSAGE, { senderId, message });
+
+      // Send message to recipient (all sockets)
+      const recipientSockets = this.presenceService.getSocketIds(recipientId);
+      if (recipientSockets.length > 0) {
+        recipientSockets.forEach((socketId) => {
+          this.server.to(socketId).emit(SOCKET_EVENT_MESSAGE, { senderId, message });
+        });
+        this.logger.log(`Delivered message to ${recipientId} (${recipientSockets.length} sockets)`);
+      } else {
+        this.logger.warn(`Recipient ${recipientId} offline → store message in DB`);
+      }
+    } catch (err) {
+      this.logger.error(`Error in handleMessage: ${err.message}`, err.stack);
     }
   }
 
   @SubscribeMessage(SOCKET_EVENT_TYPING)
-  async handleTypingStart(@MessageBody() data: { senderId: string; recipientId: string }) {
-    const socketId = this.presenceService.getSocketId(data.recipientId);
-    if (socketId) {
-      this.server.to(socketId).emit(SOCKET_EVENT_TYPING, { senderId: data.senderId });
-      this.logger.log(`Emitted ${SOCKET_EVENT_TYPING} to recipient ${data.recipientId}`);
+  async handleTyping(@MessageBody() data: { senderId: string; recipientId: string }) {
+    try {
+      const { senderId, recipientId } = data;
+
+      const recipientSockets = this.presenceService.getSocketIds(recipientId);
+      recipientSockets.forEach((socketId) => {
+        this.server.to(socketId).emit(SOCKET_EVENT_TYPING, { senderId });
+      });
+
+      this.logger.debug(`User ${senderId} typing → ${recipientId}`);
+    } catch (err) {
+      this.logger.error(`Error in handleTyping: ${err.message}`, err.stack);
     }
   }
 
   @SubscribeMessage(SOCKET_EVENT_STOP_TYPING)
-  async handleTypingStop(@MessageBody() data: { senderId: string; recipientId: string }) {
-    const socketId = this.presenceService.getSocketId(data.recipientId);
-    if (socketId) {
-      this.server.to(socketId).emit(SOCKET_EVENT_STOP_TYPING, { senderId: data.senderId });
-      this.logger.log(`Emitted ${SOCKET_EVENT_STOP_TYPING} to recipient ${data.recipientId}`);
+  async handleStopTyping(@MessageBody() data: { senderId: string; recipientId: string }) {
+    try {
+      const { senderId, recipientId } = data;
+
+      const recipientSockets = this.presenceService.getSocketIds(recipientId);
+      recipientSockets.forEach((socketId) => {
+        this.server.to(socketId).emit(SOCKET_EVENT_STOP_TYPING, { senderId });
+      });
+
+      this.logger.debug(`User ${senderId} stopped typing → ${recipientId}`);
+    } catch (err) {
+      this.logger.error(`Error in handleStopTyping: ${err.message}`, err.stack);
     }
   }
 }

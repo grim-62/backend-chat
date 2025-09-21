@@ -15,7 +15,7 @@ export class ChatController {
   createChat(@GetUser() user:any,@Body() dto:CreateChatDto): any {
     return this.chatService.createChat(user.id,dto);
   }
-
+  
   @Post('group')
   createGroupChat(@GetUser() user:any,@Body() dto:CreateGroupChatDto): any {
     return this.chatService.createGroupChat(user.id,dto);

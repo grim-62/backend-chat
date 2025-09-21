@@ -1,6 +1,7 @@
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { CorsOptions } from "@nestjs/common/interfaces/external/cors-options.interface";
 import configration from "./configration";
+import { BadRequestException } from "@nestjs/common";
 
 export const appConfigModule = {
       isGlobal:true,
@@ -12,8 +13,14 @@ export const validatePipeConfig = {
     whitelist:true ,
     transform:true ,
     forbidNonWhitelisted:true ,
-    transformOptions:{enableImplicitConversion:true
-    }
+    transformOptions:{enableImplicitConversion:true},
+    exceptionFactory: (errors) => {
+      return new BadRequestException(
+        errors.map(
+          (err) => `${err.property} - ${Object.values(err.constraints).join(', ')}`,
+        ),
+      );
+    },
 }
 
 export const corsConfig: CorsOptions = {

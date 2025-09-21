@@ -2,7 +2,7 @@ import e from "express";
 import { Types } from "mongoose";
 
 
-import { IsMongoId, IsNotEmpty } from 'class-validator';
+import { ArrayMinSize, IsArray, IsMongoId, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateChatDto {
   @IsMongoId()
@@ -12,13 +12,17 @@ export class CreateChatDto {
 
 export class CreateGroupChatDto {
   @IsMongoId()
+  @IsOptional()
   adminId?: string;
     
-  @IsNotEmpty()
+  @IsArray()
+  @ArrayMinSize(2, { message: 'At least 2 users are required to create a group chat' })
+  @IsMongoId({each:true})
   users: string[];
 
+  @IsString()
   @IsNotEmpty()
-  chatName: string;
+  name: string;
 }
 
 export class UpdateChatDto {

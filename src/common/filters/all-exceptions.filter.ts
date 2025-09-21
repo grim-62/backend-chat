@@ -1,4 +1,10 @@
-import { ExceptionFilter, Catch, ArgumentsHost, HttpStatus, Logger } from '@nestjs/common';
+import {
+  ExceptionFilter,
+  Catch,
+  ArgumentsHost,
+  HttpStatus,
+  Logger,
+} from '@nestjs/common';
 import { Request, Response } from 'express';
 
 @Catch()
@@ -10,11 +16,21 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const res = ctx.getResponse<Response>();
     const req = ctx.getRequest<Request>();
 
-    // log the full exception (stack, message)
-    this.logger.error(`Unhandled exception for ${req.method} ${req.url}`, exception?.stack || exception);
+    this.logger.error(
+      `Unhandled exception for ${req.method} ${req.url}`,
+      exception?.stack || exception,
+    );
 
     const status = exception?.status || HttpStatus.INTERNAL_SERVER_ERROR;
-    const message = status === HttpStatus.INTERNAL_SERVER_ERROR ? 'Internal server error' : exception?.message;
+
+    let message: any;
+    if (status === HttpStatus.BAD_REQUEST && exception?.response?.message) {
+      message = exception.response.message; // <-- validation errors here
+    } else if (status === HttpStatus.INTERNAL_SERVER_ERROR) {
+      message = 'Internal server error';
+    } else {
+      message = exception?.message || 'Unexpected error';
+    }
 
     const responseBody = {
       statusCode: status,

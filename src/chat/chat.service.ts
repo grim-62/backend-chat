@@ -51,24 +51,28 @@ export class ChatService {
   }
 
   async createGroupChat(adminId: string, dto: CreateGroupChatDto) {
-    if (!dto.users || dto.users.length < 2) {
-      throw new BadRequestException(
-        'A group chat requires at least 3 members (including the admin)',
-      );
+    try {
+      if (!dto.users || dto.users.length < 2) {
+        throw new BadRequestException(
+          'A group chat requires at least 3 members (including the admin)',
+        );
+      }
+      const users = [...new Set([...dto.users, adminId])];
+  
+      const newGroupChat = await this.chatModel.create({
+        chatName: dto.name,
+        isGroup: true,
+        users: users,
+        groupAdmin: [adminId],
+      });
+      return this.chatModel
+        .findById(newGroupChat._id)
+        .populate('users')
+        .populate('groupAdmin')
+        .exec();
+    } catch (error) {
+      throw new BadRequestException("Some thing went worng!!!")
     }
-    const users = [...new Set([...dto.users, adminId])];
-
-    const newGroupChat = await this.chatModel.create({
-      chatName: dto.chatName,
-      isGroup: true,
-      users: users,
-      groupAdmin: [adminId],
-    });
-    return this.chatModel
-      .findById(newGroupChat._id)
-      .populate('users')
-      .populate('groupAdmin')
-      .exec();
   }
 
   async addTogroupChat(chatId: string, userId: string) {

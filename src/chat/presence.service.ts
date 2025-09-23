@@ -7,18 +7,32 @@ export class PresenceService {
   // Map<userId, Set<socketIds>>
   private onlineUsers = new Map<string, Set<string>>();
 
-  addUser(userId: string, socketId: string) {
+  // Optional: Track last seen timestamps
+  private lastSeen = new Map<string, Date>();
+
+  /**
+   * Add a socket for a user (on connect).
+   */
+  addUser(userId: string, socketId: string): void {
+    if (!userId || !socketId) return;
+
     if (!this.onlineUsers.has(userId)) {
       this.onlineUsers.set(userId, new Set());
     }
+
     this.onlineUsers.get(userId)!.add(socketId);
 
     this.logger.debug(
-      `Added socket ${socketId} for user ${userId} → total sockets: ${this.onlineUsers.get(userId)!.size}`,
+      `User ${userId} connected with socket ${socketId}. Total sockets: ${this.onlineUsers.get(
+        userId,
+      )!.size}`,
     );
   }
 
-  removeUser(userId: string, socketId: string) {
+  /**
+   * Remove a specific socket for a user (on disconnect).
+   */
+  removeUser(userId: string, socketId: string): void {
     if (!this.onlineUsers.has(userId)) return;
 
     const sockets = this.onlineUsers.get(userId)!;
@@ -26,23 +40,54 @@ export class PresenceService {
 
     if (sockets.size === 0) {
       this.onlineUsers.delete(userId);
-      this.logger.debug(`Removed last socket for user ${userId} → user offline`);
+      this.lastSeen.set(userId, new Date());
+      this.logger.debug(`User ${userId} went offline (last socket ${socketId} removed)`);
     } else {
       this.logger.debug(
-        `Removed socket ${socketId} for user ${userId} → remaining sockets: ${sockets.size}`,
+        `Socket ${socketId} removed for user ${userId}. Remaining sockets: ${sockets.size}`,
       );
     }
   }
 
+  /**
+   * Remove by socketId only (no userId provided).
+   * Useful when disconnect only provides socketId.
+   */
+  removeBySocketId(socketId: string): string | null {
+    for (const [userId, sockets] of this.onlineUsers.entries()) {
+      if (sockets.has(socketId)) {
+        this.removeUser(userId, socketId);
+        return userId;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Get all socketIds for a user.
+   */
   getSocketIds(userId: string): string[] {
-    return [...(this.onlineUsers.get(userId) || [])];
+    return Array.from(this.onlineUsers.get(userId) ?? []);
   }
 
+  /**
+   * Get list of online userIds.
+   */
   getOnlineUsers(): string[] {
-    return [...this.onlineUsers.keys()];
+    return Array.from(this.onlineUsers.keys());
   }
 
+  /**
+   * Check if a user is online.
+   */
   isOnline(userId: string): boolean {
     return this.onlineUsers.has(userId);
+  }
+
+  /**
+   * Get last seen timestamp for a user (if offline).
+   */
+  getLastSeen(userId: string): Date | null {
+    return this.lastSeen.get(userId) ?? null;
   }
 }
